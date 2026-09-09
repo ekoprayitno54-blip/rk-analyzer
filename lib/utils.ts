@@ -5,7 +5,25 @@ export const rupiah = (n:number) => new Intl.NumberFormat('id-ID',{style:'curren
 export const fmtDate = (s:string) => { if(!s) return '-'; const d=new Date(s); return Number.isNaN(d.getTime())?s:new Intl.DateTimeFormat('id-ID',{day:'2-digit',month:'short',year:'numeric'}).format(d) }
 export const uid = () => crypto.randomUUID()
 const text=(v:any)=>String(v??'').trim()
-const num=(v:any)=>{ if(typeof v==='number') return v; const s=text(v).replace(/[^0-9,.-]/g,'').replace(/\.(?=\d{3}(\D|$))/g,'').replace(',','.'); const n=Number(s); return Number.isFinite(n)?n:0 }
+const num=(v:any)=>{
+ if(typeof v==='number') return Number.isFinite(v)?v:0
+ let s=text(v).replace(/\s/g,'').replace(/[^0-9,.-]/g,'')
+ if(!s) return 0
+ const negative=s.startsWith('-')
+ s=s.replace(/-/g,'')
+ const comma=s.lastIndexOf(','), dot=s.lastIndexOf('.')
+ if(comma>=0 && dot>=0){
+   s=dot>comma ? s.replace(/,/g,'') : s.replace(/\./g,'').replace(/,/g,'.')
+ }else if(comma>=0){
+   const decimals=s.length-comma-1
+   s=(decimals===1||decimals===2) ? s.replace(/\./g,'').replace(/,/g,'.') : s.replace(/,/g,'')
+ }else if(dot>=0){
+   const decimals=s.length-dot-1
+   if(!(decimals===1||decimals===2)) s=s.replace(/\./g,'')
+ }
+ const n=Number((negative?'-':'')+s)
+ return Number.isFinite(n)?n:0
+}
 const lowerKeys=(r:any)=>Object.fromEntries(Object.entries(r).map(([k,v])=>[k.toLowerCase().replace(/\s+/g,' ').trim(),v]))
 const pick=(r:any, keys:string[])=>{ const x=lowerKeys(r); for(const k of Object.keys(x)){ if(keys.some(q=>k.includes(q))) return x[k] } return '' }
 const dateVal=(v:any)=>{ if(!v) return ''; if(typeof v==='number'){ const d=XLSX.SSF.parse_date_code(v); if(d) return new Date(d.y,d.m-1,d.d,d.H||0,d.M||0,d.S||0).toISOString() }

@@ -113,7 +113,48 @@ const headerIndex=(row:string[], variants:string[])=>row.findIndex(c=>variants.s
 const rowDay=(v:any)=>{const n=num(v);return Number.isInteger(n)&&n>=1&&n<=31?n:0}
 const source=(name:string)=>`Paste • ${name}`
 
-export type PasteResult<T>={rows:T[];ignored:number;format:string;total:number;warnings:string[]}
+export type PasteResult<T>={rows:T[];ignored:number;format:string;total:number;warnings:string[];debitTotal?:number;creditTotal?:number;dateFrom?:string;dateTo?:string}
+
+export function parsePastedBank(input:string,year:number,month:number):PasteResult<BankTx>{
+ const g=parsePasteGrid(input), warnings:string[]=[]
+ if(!g.length)return {rows:[],ignored:0,format:'Tidak dikenali',total:0,warnings:['Tidak ada data yang ditempel.'],debitTotal:0,creditTotal:0}
+ const all=g.map(r=>r.map(norm)); let ignored=0
+ // Mencari header rekening koran: tanggal + uraian/description + debit/kredit.
+ const header=all.findIndex(r=>
+   r.some(x=>x.includes('date & time')||x==='tanggal'||x==='date'||x.includes('tanggal transaksi')) &&
+   r.some(x=>x.includes('description')||x.includes('uraian')||x.includes('keterangan')||x.includes('remark')) &&
+   r.some(x=>x==='debit'||x.includes('debet')) &&
+   r.some(x=>x==='credit'||x==='kredit'||x.includes('credit'))
+ )
+ if(header<0)return {rows:[],ignored:0,format:'Tidak dikenali',total:0,warnings:['Header rekening koran belum dikenali. Sertakan baris judul seperti Tanggal/Date & Time, Description/Uraian, Debit, Credit/Kredit, dan Balance/Saldo.'],debitTotal:0,creditTotal:0}
+ const h=g[header]
+ const iDate=headerIndex(h,['date & time','tanggal transaksi','tanggal','date'])
+ const iDesc=headerIndex(h,['description','uraian','keterangan','remark'])
+ const iDebit=headerIndex(h,['debit','debet'])
+ const iCredit=headerIndex(h,['credit','kredit'])
+ const iBalance=headerIndex(h,['balance','saldo'])
+ const iAccount=headerIndex(h,['account no.','account no','nomor rekening','no rekening','rekening'])
+ const iRef=headerIndex(h,['reference no','reference','referensi','ref no'])
+ const format=all[header].some(x=>x.includes('date & time'))?'Rekening Koran Mandiri':'Rekening Koran Umum'
+ const rows:BankTx[]=[]
+ for(const r of g.slice(header+1)){
+   const date=dateVal(iDate>=0?r[iDate]:'',year,month)
+   const debit=iDebit>=0?Math.abs(num(r[iDebit])):0
+   const credit=iCredit>=0?Math.abs(num(r[iCredit])):0
+   const description=iDesc>=0?text(r[iDesc]):''
+   if(!date||(!debit&&!credit)){if(r.some(x=>text(x)!==''))ignored++;continue}
+   const balance=iBalance>=0?num(r[iBalance]):0
+   const account=iAccount>=0?text(r[iAccount]):''
+   const reference=iRef>=0?text(r[iRef]):''
+   const x={id:uid(),date,description,debit,credit,balance,account,reference}
+   rows.push({...x,fingerprint:fnv([x.date,x.description,x.debit,x.credit,x.balance,x.account,x.reference].join('|').toLowerCase())})
+ }
+ const debitTotal=rows.reduce((a,b)=>a+b.debit,0),creditTotal=rows.reduce((a,b)=>a+b.credit,0)
+ const keys=rows.map(x=>dateKey(x.date)).filter(Boolean).sort()
+ if(ignored)warnings.push(`${ignored} baris diabaikan karena tanggal atau nominal Debit/Kredit tidak terbaca.`)
+ warnings.push('Baris dengan Debit dan Kredit sama-sama nol tidak disimpan.')
+ return {rows,ignored,format,total:debitTotal+creditTotal,warnings,debitTotal,creditTotal,dateFrom:keys[0]||'',dateTo:keys[keys.length-1]||''}
+}
 
 export function parsePastedSettlements(input:string,year:number,month:number):PasteResult<Settlement>{
  const g=parsePasteGrid(input), warnings:string[]=[]

@@ -81,6 +81,21 @@ export async function deleteBankData(unitId:string){
   if(batchErr) throw batchErr
 }
 
+
+export async function deleteSettlementData(unitId:string){
+  const {error:sErr}=await supabase.from('rk_settlements').delete().eq('unit_id',unitId)
+  if(sErr) throw sErr
+  const {error:bErr}=await supabase.from('rk_import_batches').delete().eq('unit_id',unitId).eq('source_type','SETORAN')
+  if(bErr) throw bErr
+}
+
+export async function deleteRedemptionData(unitId:string){
+  const {error:rErr}=await supabase.from('rk_redemptions').delete().eq('unit_id',unitId)
+  if(rErr) throw rErr
+  const {error:bErr}=await supabase.from('rk_import_batches').delete().eq('unit_id',unitId).eq('source_type','TEBUSAN')
+  if(bErr) throw bErr
+}
+
 export async function resetUnitData(unitId:string){
   const {error:bErr}=await supabase.from('rk_bank_transactions').delete().eq('unit_id',unitId); if(bErr) throw bErr
   const {error:sErr}=await supabase.from('rk_settlements').delete().eq('unit_id',unitId); if(sErr) throw sErr

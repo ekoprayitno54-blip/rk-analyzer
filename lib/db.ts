@@ -73,3 +73,18 @@ export async function updateInternalNote(id:string, note:string){
   if(error) throw error
   await supabase.from('rk_audit_logs').insert({entity_type:'bank_transaction',entity_id:id,action:'UPDATE_INTERNAL_NOTE',new_value:{internal_note:note}})
 }
+
+export async function deleteBankData(unitId:string){
+  const {error:txErr}=await supabase.from('rk_bank_transactions').delete().eq('unit_id',unitId)
+  if(txErr) throw txErr
+  const {error:batchErr}=await supabase.from('rk_import_batches').delete().eq('unit_id',unitId).eq('source_type','BANK')
+  if(batchErr) throw batchErr
+}
+
+export async function resetUnitData(unitId:string){
+  const {error:bErr}=await supabase.from('rk_bank_transactions').delete().eq('unit_id',unitId); if(bErr) throw bErr
+  const {error:sErr}=await supabase.from('rk_settlements').delete().eq('unit_id',unitId); if(sErr) throw sErr
+  const {error:rErr}=await supabase.from('rk_redemptions').delete().eq('unit_id',unitId); if(rErr) throw rErr
+  const {error:iErr}=await supabase.from('rk_import_batches').delete().eq('unit_id',unitId); if(iErr) throw iErr
+}
+

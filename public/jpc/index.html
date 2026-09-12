@@ -19,6 +19,9 @@
 #paper th{background:#f0f1f2;font-weight:bold}
 #paper .num{white-space:nowrap;overflow-wrap:normal}
 #paper .total{font-weight:bold;background:#f5f5f5}
+#paper .details-grid{display:grid;grid-template-columns:3fr 2fr;gap:3mm;align-items:start}
+#paper .details-grid th,#paper .details-grid td{padding:.4mm .5mm}
+#paper .details-grid table{font-size:7pt}
 #paper .lower{display:grid;grid-template-columns:1fr 1fr;gap:3mm}
 #paper .notes{border:1px solid #aaa;min-height:9mm;padding:1.5mm;white-space:pre-wrap;overflow-wrap:anywhere}
 #paper .signatures{display:grid;grid-template-columns:repeat(3,1fr);text-align:center;margin-top:2mm}
@@ -65,9 +68,52 @@ async function rest(path,opt={}){let r=await fetch(REST+'/'+path,{...opt,headers
 function show(v){document.querySelectorAll('.view').forEach(x=>x.classList.remove('on'));$('v-'+v).classList.add('on');document.querySelectorAll('nav button').forEach(x=>x.classList.toggle('on',x.dataset.v===v));if(v==='history')history();if(v==='eval')evaluation();if(v==='accounts')accounts()}document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>show(b.dataset.v));
 async function doLogin(){let b=$('login'),m=$('loginMsg'),u=$('user').value.trim(),p=$('pass').value;if(!u||!p){m.textContent='Isi username dan password.';return}busy(b,true,'Menghubungkan...');m.textContent='';try{let d=await edge({action:'login',username:u,password:p});S={access_token:d.access_token,refresh_token:d.refresh_token,user:d.user,profile:d.profile};localStorage.setItem('jpc_s',JSON.stringify(S));enter()}catch(e){m.className='msg err';m.textContent='Gagal masuk: '+e.message}finally{busy(b,false)}}$('login').onclick=doLogin;$('pass').onkeydown=e=>{if(e.key==='Enter')doLogin()};
 function enter(){if(!S?.access_token)return;$('gate').style.display='none';$('who').textContent=S.profile?.full_name||'Online';if(S.profile?.role!=='admin')$('adminForm').style.display='none'}if(S?.access_token)enter();$('logout').onclick=()=>{localStorage.removeItem('jpc_s');S=null;location.reload()};
-function parse(){let rows=$('paste').value.split(/\r?\n/).map(x=>x.split('\t')),routes=[],cur=null,driver='',truck='';for(let c of rows){if(!c.some(x=>String(x).trim()))continue;if(String(c[0]||'').toUpperCase().includes('TOTAL'))continue;let d=String(c[1]||'').trim(),t=String(c[2]||'').trim();if(d)driver=d;if(t)truck=t;if((d||t)&&(!cur||cur.driver!==driver||cur.truck!==truck)){cur={no:routes.length+1,driver:driver||'-',truck:truck||'-',sales:[],exp:[]};routes.push(cur)}if(!cur)continue;let cust=String(c[3]||'').trim(),qty=num(c[7]),rev=num(c[8]),en=String(c[9]||'').trim(),ea=num(c[10]);if(cust&&cust!=='0'&&qty>0)cur.sales.push({customer:cust,qty,revenue:rev||qty*16000});if(en&&en!=='0'&&ea>0)cur.exp.push({name:en,amount:ea})}routes=routes.filter(r=>r.sales.length||r.exp.length);if(!routes.length)throw Error('Data belum terbaca. Copy langsung dari Excel lalu paste di sini.');CUR={date:$('date').value||today(),raw:$('paste').value,routes};render()}
-function rt(r){let q=r.sales.reduce((a,x)=>a+x.qty,0),v=r.sales.reduce((a,x)=>a+x.revenue,0),e=r.exp.reduce((a,x)=>a+x.amount,0);return{q,v,e}}function totals(){return CUR.routes.reduce((a,r)=>{let t=rt(r);a.q+=t.q;a.v+=t.v;a.e+=t.e;return a},{q:0,v:0,e:0})}
 
+function companyFromPaste(raw){
+ // Only inspect the heading, never customer names in transaction rows.
+ for(const line of String(raw||'').split(/\r?\n/)){
+  const cells=line.split('\t').map(s=>s.trim());
+  if(num(cells[7])>0&&cells[3])break;
+  const name=cells.find(s=>/^PT(?:\.|\s)\s*\S/i.test(s));
+  if(name)return name;
+ }
+ return '';
+}
+function expenseRits(route,rits){
+ const numbers=[...rits];
+ return route.exp.map(()=>numbers.length?'Rit '+numbers.join(', '):'-');
+}
+function parse(){
+ const raw=$('paste').value,rows=raw.split(/\r?\n/).map(x=>x.split('\t'));
+ const routes=[],otherReceipts=[];let cur=null,driver='',truck='';
+ for(const c of rows){
+  const first=String(c[0]||'').trim(),cust=String(c[3]||'').trim();
+  if(!c.some(x=>String(x).trim()))continue;
+  if(/TOTAL/i.test(first)){cur=null;continue}
+  const qty=num(c[7]),rev=num(c[8]),en=String(c[9]||'').trim(),ea=num(c[10]);
+  if(!(qty>0||rev>0||ea>0))continue;
+  // Ignore the unlabelled grand-total row and retain non-cylinder receipts separately.
+  if(!cust&&!String(c[1]||'').trim()&&!String(c[2]||'').trim()&&!en)continue;
+  if(cust&&cust!=='-'&&cust!=='0'&&qty<=0&&rev>0){
+   otherReceipts.push({name:cust,amount:rev});continue;
+  }
+  const d=String(c[1]||'').trim(),t=String(c[2]||'').trim();
+  if(d)driver=d;if(t)truck=t;
+  if(!cur||/^\d+$/.test(first)||cur.driver!==driver||cur.truck!==truck){
+   if(!driver&&!truck)continue;
+   cur={no:routes.length+1,driver:driver||'-',truck:truck||'-',sales:[],exp:[]};routes.push(cur);
+  }
+  if(cust&&cust!=='-'&&cust!=='0'&&qty>0)cur.sales.push({customer:cust,qty,revenue:rev||qty*16000});
+  if(en&&en!=='-'&&en!=='0'&&ea>0)cur.exp.push({name:en,amount:ea});
+ }
+ const kept=routes.filter(r=>r.sales.length||r.exp.length);
+ if(!kept.length&&!otherReceipts.length)throw Error('Data belum terbaca. Copy langsung dari Excel lalu paste di sini.');
+ CUR={date:$('date').value||today(),raw,company:companyFromPaste(raw),routes:kept,otherReceipts};render();
+}
+function rt(r){let q=r.sales.reduce((a,x)=>a+x.qty,0),v=r.sales.reduce((a,x)=>a+x.revenue,0),e=r.exp.reduce((a,x)=>a+x.amount,0);return{q,v,e}}function totals(){
+ const T=CUR.routes.reduce((a,r)=>{const t=rt(r);a.q+=t.q;a.v+=t.v;a.e+=t.e;return a},{q:0,v:0,e:0});
+ T.sales=T.v;T.other=(CUR.otherReceipts||[]).reduce((a,x)=>a+x.amount,0);T.v+=T.other;return T;
+}
 
 const DO_CAPACITY=560;
 // A derived delivery ledger keeps original input and stored money unchanged.
@@ -102,8 +148,8 @@ function render(){
   const f=fleet.get(key)||{driver:r.driver,truck:r.truck,q:0,e:0};
   f.q+=t.q;f.e+=t.e;fleet.set(key,f);
   r.sales.forEach(x=>customers.add(String(x.customer).trim().toLocaleUpperCase('id-ID')));
-  const related=[...ledger.sourceRits[i]].join(', ')||'-';
-  r.exp.forEach(x=>expenses+=`<tr><td>${++en}</td><td>${esc(r.driver)}</td><td>${esc(r.truck)}</td><td>${related}</td><td>${esc(x.name)}</td><td class=num>${rp(x.amount)}</td></tr>`);
+  const related=expenseRits(r,ledger.sourceRits[i]);
+  r.exp.forEach((x,j)=>expenses+=`<tr><td>${++en}</td><td>${esc(r.driver)}</td><td>${esc(r.truck)}</td><td>${related[j]}</td><td>${esc(x.name)}</td><td class=num>${rp(x.amount)}</td></tr>`);
  });
  ledger.groups.forEach(g=>{
   g.sales.forEach(x=>sales+=`<tr><td>${++sn}</td><td>${esc(x.driver)}</td><td>${esc(x.truck)}</td><td>${esc(x.customer)}</td><td>Rit ${g.no}</td><td class=num>${nf(x.qty)}</td><td class=num>${x.qty?rp(x.revenue/x.qty):'-'}</td><td class=num>${rp(x.revenue)}</td></tr>`);
@@ -114,15 +160,16 @@ function render(){
  const summary=[['Jumlah Pelanggan',nf(customers.size)],['Jumlah Rit (Tabung ÷ 560)',nf(T.q/DO_CAPACITY)],['Total Tabung',nf(T.q)],['Total Penerimaan',rp(T.v)],['Total Pengeluaran',rp(T.e)],['Arus Kas Bersih',rp(T.v-T.e)]];
  $('kpis').innerHTML=summary.slice(2).map(([label,value])=>`<div class=k><small>${label}</small><b>${value}</b></div>`).join('');
  $('paper').innerHTML=`<div class=report-content>
- <div class=title><h2>PT. ADWA PUTRA JAWA</h2><div class=subtitle>LAPORAN PENERIMAAN DAN PENGELUARAN HARIAN</div><div>Admin Agen 3kg</div></div>
- <div class=meta><div><b>Nomor Laporan:</b> LPH/APJ/${day}/${month}/${year}</div><div><b>Tanggal:</b> ${date.toLocaleDateString('id-ID',{day:'2-digit',month:'long',year:'numeric'})}</div><div><b>Hari:</b> ${date.toLocaleDateString('id-ID',{weekday:'long'})}</div><div><b>Petugas:</b> ${esc(operator)}</div><div style="grid-column:span 2"><b>Waktu Cetak:</b> <span id=printedAt></span></div></div>
+ <div class=title><h2>${esc(CUR.company||companyFromPaste(CUR.raw)||'NAMA PT BELUM TERBACA')}</h2><div class=subtitle>LAPORAN PENERIMAAN DAN PENGELUARAN HARIAN</div><div>Admin Agen 3kg</div></div>
+ <div class=meta><div><b>Nomor Laporan:</b> LPH/${day}/${month}/${year}</div><div><b>Tanggal:</b> ${date.toLocaleDateString('id-ID',{day:'2-digit',month:'long',year:'numeric'})}</div><div><b>Hari:</b> ${date.toLocaleDateString('id-ID',{weekday:'long'})}</div><div><b>Petugas:</b> ${esc(operator)}</div><div style="grid-column:span 2"><b>Waktu Cetak:</b> <span id=printedAt></span></div></div>
  <div class=sec>I. RINGKASAN HARIAN</div><div class=summary>${summary.map(([k,v])=>`<div><small>${k}</small><b>${v}</b></div>`).join('')}</div>
- <div class=sec>II. RINCIAN PENERIMAAN PENJUALAN</div>
- <table><colgroup><col style="width:4%"><col style="width:14%"><col style="width:12%"><col style="width:23%"><col style="width:7%"><col style="width:9%"><col style="width:14%"><col style="width:17%"></colgroup><thead><tr><th>No</th><th>Sopir</th><th>No Truk</th><th>Nama Pelanggan</th><th>Rit</th><th class=num>Qty</th><th class=num>Harga Satuan</th><th class=num>Jumlah</th></tr></thead><tbody>${sales||'<tr><td colspan=8>Tidak ada penerimaan.</td></tr>'}<tr class=total><td colspan=5>Total Penerimaan / Tabung</td><td class=num>${nf(T.q)}</td><td></td><td class=num>${rp(T.v)}</td></tr></tbody></table>
- <div class=sec>III. RINCIAN PENGELUARAN</div>
- <table><colgroup><col style="width:4%"><col style="width:18%"><col style="width:15%"><col style="width:6%"><col style="width:38%"><col style="width:19%"></colgroup><thead><tr><th>No</th><th>Sopir</th><th>No Truk</th><th>Rit terkait</th><th>Jenis Pengeluaran</th><th class=num>Nominal</th></tr></thead><tbody>${expenses||'<tr><td colspan=6>Tidak ada pengeluaran.</td></tr>'}<tr class=total><td colspan=5>Total Pengeluaran</td><td class=num>${rp(T.e)}</td></tr></tbody></table>
- <div class=sec>IV. REKAP EVALUASI SOPIR / ARMADA</div><table><thead><tr><th>Sopir</th><th>Truk</th><th class=num>Rit (÷ 560)</th><th class=num>Total Tabung</th><th class=num>Total Pengeluaran</th><th class=num>Biaya per Tabung</th></tr></thead><tbody>${[...fleet.values()].map(f=>`<tr><td>${esc(f.driver)}</td><td>${esc(f.truck)}</td><td class=num>${nf(f.q/DO_CAPACITY)}</td><td class=num>${nf(f.q)}</td><td class=num>${rp(f.e)}</td><td class=num>${f.q?rp(f.e/f.q):'-'}</td></tr>`).join('')}</tbody></table>
- <div class=lower><div><div class=sec>V. REKAP AKHIR</div><table><tbody><tr><td>Total Penerimaan</td><td class=num>${rp(T.v)}</td></tr><tr><td>Total Pengeluaran</td><td class=num>${rp(T.e)}</td></tr><tr class=total><td>Arus Kas Bersih</td><td class=num>${rp(T.v-T.e)}</td></tr></tbody></table></div><div><div class=sec>VI. CATATAN</div><div class=notes>${esc(CUR.notes||'....................................................................................................\n....................................................................................................')}</div><div class=footnote>Jumlah rit = total tabung ÷ 560. Pengiriman dibagi sesuai urutan input, setiap 560 tabung. Rit terkait pengeluaran menunjukkan kelompok asal; biaya tidak dibagi ulang. Pelanggan dihitung unik.</div></div></div>
+ <div class=details-grid><div><div class=sec>II. RINCIAN PENERIMAAN PENJUALAN</div>
+ <table><colgroup><col style="width:4%"><col style="width:14%"><col style="width:12%"><col style="width:23%"><col style="width:7%"><col style="width:9%"><col style="width:14%"><col style="width:17%"></colgroup><thead><tr><th>No</th><th>Sopir</th><th>No Truk</th><th>Nama Pelanggan</th><th>Rit</th><th class=num>Qty</th><th class=num>Harga Satuan</th><th class=num>Jumlah</th></tr></thead><tbody>${sales||'<tr><td colspan=8>Tidak ada penerimaan.</td></tr>'}<tr class=total><td colspan=5>Total Penerimaan / Tabung</td><td class=num>${nf(T.q)}</td><td></td><td class=num>${rp(T.sales)}</td></tr></tbody></table>
+ ${T.other?`<div class=sec>PENERIMAAN LAIN-LAIN (BUKAN RIT)</div><table><tbody>${CUR.otherReceipts.map(x=>`<tr><td>${esc(x.name)}</td><td class=num>${rp(x.amount)}</td></tr>`).join('')}<tr class=total><td>Total Penerimaan Lain-lain</td><td class=num>${rp(T.other)}</td></tr></tbody></table>`:''}
+ </div><div><div class=sec>III. RINCIAN PENGELUARAN</div>
+ <table><colgroup><col style="width:6%"><col style="width:16%"><col style="width:19%"><col style="width:10%"><col style="width:30%"><col style="width:19%"></colgroup><thead><tr><th>No</th><th>Sopir</th><th>No Truk</th><th>Rit</th><th>Jenis Pengeluaran</th><th class=num>Nominal</th></tr></thead><tbody>${expenses||'<tr><td colspan=6>Tidak ada pengeluaran.</td></tr>'}<tr class=total><td colspan=5>Total Pengeluaran</td><td class=num>${rp(T.e)}</td></tr></tbody></table>
+ </div></div><div class=sec>IV. REKAP EVALUASI SOPIR / ARMADA</div><table><thead><tr><th>Sopir</th><th>Truk</th><th>Nomor Rit</th><th class=num>Jumlah Rit (÷ 560)</th><th class=num>Total Tabung</th><th class=num>Total Pengeluaran</th><th class=num>Biaya per Tabung</th></tr></thead><tbody>${[...fleet.values()].map(f=>`<tr><td>${esc(f.driver)}</td><td>${esc(f.truck)}</td><td>${ledger.groups.filter(g=>g.sales.some(x=>x.driver===f.driver&&x.truck===f.truck)).map(g=>'Rit '+g.no).join(', ')||'-'}</td><td class=num>${nf(f.q/DO_CAPACITY)}</td><td class=num>${nf(f.q)}</td><td class=num>${rp(f.e)}</td><td class=num>${f.q?rp(f.e/f.q):'-'}</td></tr>`).join('')}</tbody></table>
+ <div class=lower><div><div class=sec>V. REKAP AKHIR</div><table><tbody><tr><td>Total Penerimaan</td><td class=num>${rp(T.v)}</td></tr><tr><td>Total Pengeluaran</td><td class=num>${rp(T.e)}</td></tr><tr class=total><td>Arus Kas Bersih</td><td class=num>${rp(T.v-T.e)}</td></tr></tbody></table></div><div><div class=sec>VI. CATATAN</div><div class=notes>${esc(CUR.notes||'....................................................................................................\n....................................................................................................')}</div><div class=footnote>Jumlah rit = total tabung ÷ 560. Pengiriman dibagi sesuai urutan input, setiap 560 tabung. Biaya mengikuti blok input. Blok yang mencakup beberapa rit menampilkan semua rit terkait; nominal tidak digandakan. Pelanggan dihitung unik.</div></div></div>
  <div class=signatures><div>Dibuat Oleh<div class=signature-name>${esc(operator==='-'?'':operator)}</div></div><div>Diperiksa<div class=signature-name></div></div><div>Disetujui<div class=signature-name></div></div></div>
  </div>`;
  show('report');preparePrint();
@@ -131,7 +178,7 @@ function preparePrint(){
  if(!CUR)return;
  $('printedAt').textContent=new Intl.DateTimeFormat('id-ID',{timeZone:'Asia/Jakarta',day:'2-digit',month:'long',year:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false}).format(new Date())+' WIB';
  const paper=$('paper'),content=paper.firstElementChild;
- paper.classList.remove('compact','dense');paper.style.setProperty('--print-scale','1');
+ paper.classList.remove('compact','dense');paper.style.setProperty('--print-scale','1');content.style.zoom='1';
  // Reserve 1 mm for browser rounding; fit the full report without clipping rows.
  const maxHeight=197*96/25.4;
  for(const density of ['compact','dense']){
@@ -139,9 +186,9 @@ function preparePrint(){
   paper.classList.add(density);
  }
  let scale=Math.min(1,maxHeight/content.getBoundingClientRect().height);
- paper.style.setProperty('--print-scale',String(scale));
+ paper.style.setProperty('--print-scale',String(scale));content.style.zoom=String(scale);
  // Recheck under print media because table minimum heights can round differently.
- if(matchMedia('print').matches){
+ {
   for(let i=0;i<5&&content.getBoundingClientRect().height>maxHeight;i++){
    scale*=maxHeight/content.getBoundingClientRect().height*.995;
    paper.style.setProperty('--print-scale',String(scale));
@@ -153,7 +200,7 @@ function preparePrint(){
 window.addEventListener('beforeprint',preparePrint);
 
 $('parse').onclick=()=>{try{parse();$('parseMsg').textContent='Data berhasil dibaca.'}catch(e){$('parseMsg').className='msg err';$('parseMsg').textContent=e.message}};$('clear').onclick=()=>{$('paste').value=''};$('sample').onclick=()=>{$('date').value='2026-09-01';$('paste').value='1\tAGUS P\tAE 8361 NM\tWAHYU HARTONO\tTF\t01/09/2026\t1 September 2026\t100\t1600000\tONGKI\t56000\n\t\t\tDAMAYANTO\tTF\t01/09/2026\t1 September 2026\t50\t800000\tPLASTIK\t50000'};$('back').onclick=()=>show('input');$('print').onclick=()=>{if(!CUR){alert('Proses data laporan terlebih dahulu.');return}preparePrint();print()};
-async function save(){if(!CUR)return;let b=$('save');busy(b,true,'Menyimpan...');try{let T=totals(),uid=S.user.id,r=await rest('jpc_reports?on_conflict=created_by,report_date',{method:'POST',prefer:'resolution=merge-duplicates,return=representation',body:JSON.stringify([{created_by:uid,report_date:CUR.date,raw_paste:CUR.raw,status:'final',total_trips:CUR.routes.length,total_qty:T.q,total_revenue:T.v,total_expense:T.e}])}),rid=r[0].id;await rest('jpc_sales?report_id=eq.'+rid,{method:'DELETE',prefer:'return=minimal'});await rest('jpc_expenses?report_id=eq.'+rid,{method:'DELETE',prefer:'return=minimal'});await rest('jpc_trips?report_id=eq.'+rid,{method:'DELETE',prefer:'return=minimal'});let ts=[],ss=[],es=[];CUR.routes.forEach(r=>{let t=rt(r),id=crypto.randomUUID();ts.push({id,report_id:rid,trip_no:r.no,driver_name:r.driver,truck_no:r.truck,total_qty:t.q,total_revenue:t.v,total_expense:t.e});r.sales.forEach(x=>ss.push({report_id:rid,trip_id:id,customer_name:x.customer,qty:x.qty,unit_price:x.qty?x.revenue/x.qty:16000,revenue:x.revenue}));r.exp.forEach(x=>es.push({report_id:rid,trip_id:id,category:x.name,amount:x.amount}))});if(ts.length)await rest('jpc_trips',{method:'POST',body:JSON.stringify(ts)});if(ss.length)await rest('jpc_sales',{method:'POST',body:JSON.stringify(ss)});if(es.length)await rest('jpc_expenses',{method:'POST',body:JSON.stringify(es)});alert('Berhasil disimpan online.')}catch(e){alert('Gagal menyimpan: '+e.message)}finally{busy(b,false)}}$('save').onclick=save;
+async function save(){if(!CUR)return;let b=$('save');busy(b,true,'Menyimpan...');try{let T=totals(),uid=S.user.id,r=await rest('jpc_reports?on_conflict=created_by,report_date',{method:'POST',prefer:'resolution=merge-duplicates,return=representation',body:JSON.stringify([{created_by:uid,report_date:CUR.date,raw_paste:CUR.raw,status:'final',total_trips:Math.ceil(T.q/DO_CAPACITY),total_qty:T.q,total_revenue:T.v,total_expense:T.e}])}),rid=r[0].id;await rest('jpc_sales?report_id=eq.'+rid,{method:'DELETE',prefer:'return=minimal'});await rest('jpc_expenses?report_id=eq.'+rid,{method:'DELETE',prefer:'return=minimal'});await rest('jpc_trips?report_id=eq.'+rid,{method:'DELETE',prefer:'return=minimal'});let ts=[],ss=[],es=[];CUR.routes.forEach(r=>{let t=rt(r),id=crypto.randomUUID();ts.push({id,report_id:rid,trip_no:r.no,driver_name:r.driver,truck_no:r.truck,total_qty:t.q,total_revenue:t.v,total_expense:t.e});r.sales.forEach(x=>ss.push({report_id:rid,trip_id:id,customer_name:x.customer,qty:x.qty,unit_price:x.qty?x.revenue/x.qty:16000,revenue:x.revenue}));r.exp.forEach(x=>es.push({report_id:rid,trip_id:id,category:x.name,amount:x.amount}))});if(ts.length)await rest('jpc_trips',{method:'POST',body:JSON.stringify(ts)});if(ss.length)await rest('jpc_sales',{method:'POST',body:JSON.stringify(ss)});if(es.length)await rest('jpc_expenses',{method:'POST',body:JSON.stringify(es)});alert('Berhasil disimpan online.')}catch(e){alert('Gagal menyimpan: '+e.message)}finally{busy(b,false)}}$('save').onclick=save;
 async function history(){let el=$('history');el.textContent='Memuat...';try{let a=await rest('jpc_reports?select=report_date,total_qty,total_revenue,total_expense&order=report_date.desc',{method:'GET'});el.innerHTML=a.length?'<div class=tw><table><tr><th>Tanggal</th><th>Tabung</th><th>Rit (÷ 560)</th><th>Penerimaan</th><th>Pengeluaran</th></tr>'+a.map(x=>`<tr><td>${x.report_date}</td><td class=num>${nf(x.total_qty)}</td><td class=num>${nf(x.total_qty/DO_CAPACITY)}</td><td class=num>${rp(x.total_revenue)}</td><td class=num>${rp(x.total_expense)}</td></tr>`).join('')+'</table></div>':'Belum ada laporan.'}catch(e){el.textContent=e.message}}
 async function evaluation(){let el=$('evalBox'),m=$('month').value;el.textContent='Memuat...';try{let d=new Date(m+'-01'),nxt=new Date(d.getFullYear(),d.getMonth()+1,1),end=nxt.toISOString().slice(0,10),reps=await rest(`jpc_reports?select=id&report_date=gte.${m}-01&report_date=lt.${end}`,{method:'GET'});if(!reps.length){el.textContent='Belum ada data.';return}let tr=await rest('jpc_trips?select=driver_name,truck_no,total_qty,total_expense&report_id=in.('+reps.map(x=>x.id).join(',')+')',{method:'GET'}),map={};tr.forEach(x=>{let k=x.driver_name+'|'+x.truck_no,o=map[k]||(map[k]={d:x.driver_name,t:x.truck_no,q:0,e:0});o.q+=+x.total_qty;o.e+=+x.total_expense});let a=Object.values(map).sort((a,b)=>b.e-a.e);el.innerHTML='<table><tr><th>Sopir</th><th>Truk</th><th>Tabung</th><th>Rit (÷ 560)</th><th>Pengeluaran</th><th>Biaya/Tabung</th></tr>'+a.map(x=>`<tr><td>${esc(x.d)}</td><td>${esc(x.t)}</td><td class=num>${nf(x.q)}</td><td class=num>${nf(x.q/DO_CAPACITY)}</td><td class=num>${rp(x.e)}</td><td class=num>${rp(x.q?x.e/x.q:0)}</td></tr>`).join('')+'</table>'}catch(e){el.textContent=e.message}}$('month').onchange=evaluation;
 async function accounts(){let el=$('accountList');if(S.profile?.role!=='admin'){el.textContent='Hanya admin.';return}el.textContent='Memuat...';try{let d=await edge({action:'list_users'},true);el.innerHTML='<table><tr><th>Username</th><th>Nama</th><th>Role</th><th>Status</th></tr>'+d.users.map(x=>`<tr><td>${esc(x.username)}</td><td>${esc(x.full_name)}</td><td>${x.role}</td><td>${x.is_active?'Aktif':'Nonaktif'}</td></tr>`).join('')+'</table>'}catch(e){el.textContent=e.message}}

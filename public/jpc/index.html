@@ -40,7 +40,8 @@
  main{padding:0;margin:0;max-width:none}
  .view{display:none!important}
  #v-report{display:block!important;overflow:visible}
- #paper{width:285mm;max-width:none;margin:0;padding:0;break-inside:avoid;page-break-inside:avoid}
+ #paper{width:285mm;max-width:none;margin:0;padding:0;min-height:197mm;display:flex;justify-content:center;align-items:center;break-inside:avoid;page-break-inside:avoid}
+ #paper .report-content{flex-shrink:0}
  #paper .report-content{zoom:var(--print-scale,1)}
  #paper *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
  #paper tr{break-inside:avoid}
@@ -52,7 +53,7 @@
 <nav><button class="on" data-v="input">Input</button><button data-v="report">Laporan</button><button data-v="history">Riwayat</button><button data-v="eval">Evaluasi</button><button data-v="accounts">Akun</button></nav>
 <main>
 <section id="v-input" class="view on"><div class="card"><h3>Input laporan</h3><div class="grid"><div><label>Tanggal laporan</label><input id="date" type="date"></div><div><label>Data copy-paste Excel</label><p class="msg">Urutkan pengiriman sesuai urutan sebenarnya. Setiap 560 tabung menjadi satu rit; kiriman yang melewati batas dibagi ke rit berikutnya.</p><textarea id="paste" placeholder="Paste kolom dari sheet TGL 1 di sini"></textarea></div></div><div class="row"><button id="parse" class="btn p">Proses Data</button><button id="sample" class="btn">Contoh</button><button id="clear" class="btn">Kosongkan</button></div><div id="parseMsg" class="msg"></div></div></section>
-<section id="v-report" class="view"><div class="row noprint"><button id="save" class="btn p">Simpan Online</button><button id="print" class="btn">Cetak / PDF</button><button id="back" class="btn">Kembali</button></div><p id="printNotice" class="noprint msg"></p><div id="kpis" class="kpis noprint"></div><div id="paper"></div></section>
+<section id="v-report" class="view"><div class="row noprint"><button id="save" class="btn p">Simpan Online</button><button id="print" class="btn">Cetak</button><button id="pdf" class="btn">Simpan PDF</button><button id="excel" class="btn">Simpan Excel (.xlsx)</button><button id="back" class="btn">Kembali</button></div><p class="noprint msg">Simpan PDF: pilih “Save as PDF / Simpan sebagai PDF” pada dialog cetak. Excel diunduh ke folder unduhan PC atau lokasi yang Anda pilih. Ekspor memakai data laporan yang sedang tampil dan tidak memerlukan Simpan Online.</p><p id="printNotice" class="noprint msg"></p><div id="kpis" class="kpis noprint"></div><div id="paper"></div></section>
 <section id="v-history" class="view"><div class="card"><h3>Riwayat</h3><div id="history">Memuat...</div></div></section>
 <section id="v-eval" class="view"><div class="card"><h3>Evaluasi sopir & armada</h3><label>Bulan</label><input id="month" type="month"><div id="evalBox" style="margin-top:12px"></div></div></section>
 <section id="v-accounts" class="view"><div class="card"><h3>Kelola akun internal</h3><div id="adminForm"><div class="grid"><div><label>Username</label><input id="nu"><label>Nama</label><input id="nn"></div><div><label>Password</label><input id="np" type="password"><label>Hak akses</label><select id="nr"><option value="operator">Operator</option><option value="viewer">Viewer</option><option value="admin">Admin</option></select></div></div><div class="row"><button id="make" class="btn p">Buat Akun</button></div><div id="accountMsg" class="msg"></div></div><div id="accountList" style="margin-top:12px"></div></div></section>
@@ -209,6 +210,72 @@ function preparePrint(){
 window.addEventListener('beforeprint',preparePrint);
 
 $('parse').onclick=()=>{try{parse();$('parseMsg').textContent='Data berhasil dibaca.'}catch(e){$('parseMsg').className='msg err';$('parseMsg').textContent=e.message}};$('clear').onclick=()=>{$('paste').value=''};$('sample').onclick=()=>{$('date').value='2026-09-01';$('paste').value='1\tAGUS P\tAE 8361 NM\tWAHYU HARTONO\tTF\t01/09/2026\t1 September 2026\t100\t1600000\tONGKI\t56000\n\t\t\tDAMAYANTO\tTF\t01/09/2026\t1 September 2026\t50\t800000\tPLASTIK\t50000'};$('back').onclick=()=>show('input');$('print').onclick=()=>{if(!CUR){alert('Proses data laporan terlebih dahulu.');return}preparePrint();print()};
+
+function reportFilename(){return 'Admin-Agen-3kg-'+CUR.date}
+function savePdf(){
+ if(!CUR){alert('Proses data laporan terlebih dahulu.');return}
+ const previous=document.title;document.title=reportFilename();
+ const restore=()=>{document.title=previous;window.removeEventListener('afterprint',restore)};
+ window.addEventListener('afterprint',restore);
+ preparePrint();window.print();
+}
+function exportSheets(){
+ const T=totals(),ledger=deliveryLedger(CUR.routes),fleet=new Map();
+ const sales=[['No','Sopir','No Truk','Nama Pelanggan','Rit','Qty Tabung','Harga Satuan','Jumlah']];
+ let n=0;
+ ledger.groups.forEach(g=>g.sales.forEach(x=>sales.push([++n,x.driver,x.truck,x.customer,g.no,x.qty,x.revenue/x.qty,x.revenue])));
+ const exp=[['No','Sopir','No Truk','Rit','Jenis Pengeluaran','Nominal','Kelompok']];n=0;
+ CUR.routes.forEach((r,i)=>{
+  const t=rt(r),routine=routineExpense(r.exp),key=JSON.stringify([r.driver,r.truck]);
+  const f=fleet.get(key)||{d:r.driver,t:r.truck,q:0,e:0,r:0};
+  f.q+=t.q;f.e+=t.e;f.r+=routine;fleet.set(key,f);
+  const rits=expenseRits(r,ledger.sourceRits[i]);
+  r.exp.forEach((x,j)=>exp.push([++n,r.driver,r.truck,rits[j],x.name,x.amount,isRoutineTruckExpense(x.name)?'Rutin truk':'Nonrutin']));
+ });
+ const company=CUR.company||companyFromPaste(CUR.raw)||'Nama PT belum terbaca';
+ return [
+ ['Ringkasan',[[company],['Admin Agen 3kg'],['Tanggal',CUR.date],['Petugas',CUR.petugas||S?.profile?.full_name||'-'],['Jumlah Pelanggan',new Set(CUR.routes.flatMap(r=>r.sales.map(x=>x.customer.trim().toUpperCase()))).size],['Jumlah Rit',T.q/DO_CAPACITY],['Total Tabung',T.q],['Penerimaan Penjualan',T.sales],['Penerimaan Lain-lain',T.other],['Total Penerimaan',T.v],['Total Pengeluaran',T.e],['Arus Kas Bersih',T.v-T.e],['Catatan',CUR.notes||''],['Biaya per Tabung','Hanya beban rutin truk dibagi jumlah tabung']]],
+ ['Penjualan',sales],['Pengeluaran',exp],
+ ['Evaluasi',[['Sopir','Truk','Jumlah Rit','Tabung','Beban Rutin Truk','Nonrutin','Total Pengeluaran','Biaya per Tabung'],...[...fleet.values()].map(f=>[f.d,f.t,f.q/DO_CAPACITY,f.q,f.r,f.e-f.r,f.e,f.q?f.r/f.q:'-'])]],
+ ['Penerimaan Lain',[['Keterangan','Nominal'],...(CUR.otherReceipts||[]).map(x=>[x.name,x.amount])]],
+ ['Data Input',String(CUR.raw||'').split(/\r?\n/).map(line=>line.split('\t'))]
+ ];
+}
+// Native XLSX: XML worksheets in an uncompressed ZIP, with no network dependency.
+function xlsxBlob(sheets){
+ const enc=new TextEncoder(),files=[];
+ const xml=s=>String(s??'').replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g,'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&apos;'}[c]));
+ const col=i=>{let s='';for(i++;i;i=Math.floor((i-1)/26))s=String.fromCharCode(65+(i-1)%26)+s;return s};
+ const add=(name,text)=>files.push({name:enc.encode(name),data:enc.encode(text)});
+ add('[Content_Types].xml','<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'+sheets.map((_,i)=>'<Override PartName="/xl/worksheets/sheet'+(i+1)+'.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>').join('')+'</Types>');
+ add('_rels/.rels','<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>');
+ add('xl/workbook.xml','<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>'+sheets.map(([name],i)=>'<sheet name="'+xml(name)+'" sheetId="'+(i+1)+'" r:id="rId'+(i+1)+'"/>').join('')+'</sheets></workbook>');
+ add('xl/_rels/workbook.xml.rels','<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'+sheets.map((_,i)=>'<Relationship Id="rId'+(i+1)+'" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet'+(i+1)+'.xml"/>').join('')+'</Relationships>');
+ sheets.forEach(([name,rows],i)=>{
+  const count=Math.max(1,...rows.map(r=>r.length));
+  add('xl/worksheets/sheet'+(i+1)+'.xml','<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><cols><col min="1" max="'+count+'" width="24" customWidth="1"/></cols><sheetData>'+rows.map((row,r)=>'<row r="'+(r+1)+'">'+row.map((v,j)=>'<c r="'+col(j)+(r+1)+'"'+(typeof v==='number'&&Number.isFinite(v)?'><v>'+v+'</v>':' t="inlineStr"><is><t xml:space="preserve">'+xml(v)+'</t></is>')+'</c>').join('')+'</row>').join('')+'</sheetData></worksheet>');
+ });
+ const crc=data=>{let c=0xffffffff;for(const b of data){c^=b;for(let k=0;k<8;k++)c=(c>>>1)^((c&1)?0xedb88320:0)}return (c^0xffffffff)>>>0};
+ const header=(size,values)=>{const b=new Uint8Array(size),v=new DataView(b.buffer);values.forEach(([o,n,x])=>n===4?v.setUint32(o,x,true):v.setUint16(o,x,true));return b};
+ const parts=[],central=[];let offset=0,centralSize=0;
+ files.forEach(f=>{
+  const n=f.name.length,len=f.data.length,sum=crc(f.data);
+  parts.push(header(30,[[0,4,0x04034b50],[4,2,20],[6,2,0x800],[14,4,sum],[18,4,len],[22,4,len],[26,2,n]]),f.name,f.data);
+  central.push(header(46,[[0,4,0x02014b50],[4,2,20],[6,2,20],[8,2,0x800],[16,4,sum],[20,4,len],[24,4,len],[28,2,n],[42,4,offset]]),f.name);
+  offset+=30+n+len;centralSize+=46+n;
+ });
+ return new Blob([...parts,...central,header(22,[[0,4,0x06054b50],[8,2,files.length],[10,2,files.length],[12,4,centralSize],[16,4,offset]])],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+}
+function saveExcel(){
+ if(!CUR){alert('Proses data laporan terlebih dahulu.');return}
+ try{
+  const url=URL.createObjectURL(xlsxBlob(exportSheets())),a=document.createElement('a');
+  a.href=url;a.download=reportFilename()+'.xlsx';document.body.appendChild(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),60000);
+ }catch(e){alert('Gagal membuat Excel: '+e.message)}
+}
+$('pdf').onclick=savePdf;$('excel').onclick=saveExcel;
+
 async function save(){if(!CUR)return;let b=$('save');busy(b,true,'Menyimpan...');try{let T=totals(),uid=S.user.id,r=await rest('jpc_reports?on_conflict=created_by,report_date',{method:'POST',prefer:'resolution=merge-duplicates,return=representation',body:JSON.stringify([{created_by:uid,report_date:CUR.date,raw_paste:CUR.raw,status:'final',total_trips:Math.ceil(T.q/DO_CAPACITY),total_qty:T.q,total_revenue:T.v,total_expense:T.e}])}),rid=r[0].id;await rest('jpc_sales?report_id=eq.'+rid,{method:'DELETE',prefer:'return=minimal'});await rest('jpc_expenses?report_id=eq.'+rid,{method:'DELETE',prefer:'return=minimal'});await rest('jpc_trips?report_id=eq.'+rid,{method:'DELETE',prefer:'return=minimal'});let ts=[],ss=[],es=[];CUR.routes.forEach(r=>{let t=rt(r),id=crypto.randomUUID();ts.push({id,report_id:rid,trip_no:r.no,driver_name:r.driver,truck_no:r.truck,total_qty:t.q,total_revenue:t.v,total_expense:t.e});r.sales.forEach(x=>ss.push({report_id:rid,trip_id:id,customer_name:x.customer,qty:x.qty,unit_price:x.qty?x.revenue/x.qty:16000,revenue:x.revenue}));r.exp.forEach(x=>es.push({report_id:rid,trip_id:id,category:x.name,amount:x.amount}))});if(ts.length)await rest('jpc_trips',{method:'POST',body:JSON.stringify(ts)});if(ss.length)await rest('jpc_sales',{method:'POST',body:JSON.stringify(ss)});if(es.length)await rest('jpc_expenses',{method:'POST',body:JSON.stringify(es)});alert('Berhasil disimpan online.')}catch(e){alert('Gagal menyimpan: '+e.message)}finally{busy(b,false)}}$('save').onclick=save;
 async function history(){let el=$('history');el.textContent='Memuat...';try{let a=await rest('jpc_reports?select=report_date,total_qty,total_revenue,total_expense&order=report_date.desc',{method:'GET'});el.innerHTML=a.length?'<div class=tw><table><tr><th>Tanggal</th><th>Tabung</th><th>Rit (÷ 560)</th><th>Penerimaan</th><th>Pengeluaran</th></tr>'+a.map(x=>`<tr><td>${x.report_date}</td><td class=num>${nf(x.total_qty)}</td><td class=num>${nf(x.total_qty/DO_CAPACITY)}</td><td class=num>${rp(x.total_revenue)}</td><td class=num>${rp(x.total_expense)}</td></tr>`).join('')+'</table></div>':'Belum ada laporan.'}catch(e){el.textContent=e.message}}
 

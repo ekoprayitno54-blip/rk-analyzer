@@ -138,6 +138,15 @@ function deliveryLedger(routes){
  return {groups,sourceRits};
 }
 
+
+function isRoutineTruckExpense(name){
+ const key=String(name||'').toUpperCase().replace(/\./g,'').replace(/[\-_/]/g,' ').replace(/\s+/g,' ').trim();
+ return /^(ONGKI|PLASTIK|UM|UANG MAKAN|BBM|SOLAR|BBM SOLAR|PARKIR|RETRIBUSI|RESTRIBUSI|RETRI|BONGKAR BAN|TAMBAL BAN)( TRUK)?$/.test(key);
+}
+function routineExpense(exp){
+ return exp.reduce((sum,x)=>sum+(isRoutineTruckExpense(x.name??x.category)?Number(x.amount)||0:0),0);
+}
+
 function render(){
  const T=totals(),customers=new Set(),fleet=new Map();
 
@@ -145,8 +154,8 @@ function render(){
  let sales='',expenses='',sn=0,en=0;
  CUR.routes.forEach((r,i)=>{
   const t=rt(r),key=JSON.stringify([r.driver,r.truck]);
-  const f=fleet.get(key)||{driver:r.driver,truck:r.truck,q:0,e:0};
-  f.q+=t.q;f.e+=t.e;fleet.set(key,f);
+  const f=fleet.get(key)||{driver:r.driver,truck:r.truck,q:0,e:0,routine:0};
+  f.q+=t.q;f.e+=t.e;f.routine+=routineExpense(r.exp);fleet.set(key,f);
   r.sales.forEach(x=>customers.add(String(x.customer).trim().toLocaleUpperCase('id-ID')));
   const related=expenseRits(r,ledger.sourceRits[i]);
   r.exp.forEach((x,j)=>expenses+=`<tr><td>${++en}</td><td>${esc(r.driver)}</td><td>${esc(r.truck)}</td><td>${related[j]}</td><td>${esc(x.name)}</td><td class=num>${rp(x.amount)}</td></tr>`);
@@ -168,8 +177,8 @@ function render(){
  ${T.other?`<div class=sec>PENERIMAAN LAIN-LAIN (BUKAN RIT)</div><table><tbody>${CUR.otherReceipts.map(x=>`<tr><td>${esc(x.name)}</td><td class=num>${rp(x.amount)}</td></tr>`).join('')}<tr class=total><td>Total Penerimaan Lain-lain</td><td class=num>${rp(T.other)}</td></tr></tbody></table>`:''}
  </div><div><div class=sec>III. RINCIAN PENGELUARAN</div>
  <table><colgroup><col style="width:6%"><col style="width:16%"><col style="width:19%"><col style="width:10%"><col style="width:30%"><col style="width:19%"></colgroup><thead><tr><th>No</th><th>Sopir</th><th>No Truk</th><th>Rit</th><th>Jenis Pengeluaran</th><th class=num>Nominal</th></tr></thead><tbody>${expenses||'<tr><td colspan=6>Tidak ada pengeluaran.</td></tr>'}<tr class=total><td colspan=5>Total Pengeluaran</td><td class=num>${rp(T.e)}</td></tr></tbody></table>
- </div></div><div class=sec>IV. REKAP EVALUASI SOPIR / ARMADA</div><table><thead><tr><th>Sopir</th><th>Truk</th><th>Nomor Rit</th><th class=num>Jumlah Rit (÷ 560)</th><th class=num>Total Tabung</th><th class=num>Total Pengeluaran</th><th class=num>Biaya per Tabung</th></tr></thead><tbody>${[...fleet.values()].map(f=>`<tr><td>${esc(f.driver)}</td><td>${esc(f.truck)}</td><td>${ledger.groups.filter(g=>g.sales.some(x=>x.driver===f.driver&&x.truck===f.truck)).map(g=>'Rit '+g.no).join(', ')||'-'}</td><td class=num>${nf(f.q/DO_CAPACITY)}</td><td class=num>${nf(f.q)}</td><td class=num>${rp(f.e)}</td><td class=num>${f.q?rp(f.e/f.q):'-'}</td></tr>`).join('')}</tbody></table>
- <div class=lower><div><div class=sec>V. REKAP AKHIR</div><table><tbody><tr><td>Total Penerimaan</td><td class=num>${rp(T.v)}</td></tr><tr><td>Total Pengeluaran</td><td class=num>${rp(T.e)}</td></tr><tr class=total><td>Arus Kas Bersih</td><td class=num>${rp(T.v-T.e)}</td></tr></tbody></table></div><div><div class=sec>VI. CATATAN</div><div class=notes>${esc(CUR.notes||'....................................................................................................\n....................................................................................................')}</div><div class=footnote>Jumlah rit = total tabung ÷ 560. Pengiriman dibagi sesuai urutan input, setiap 560 tabung. Biaya mengikuti blok input. Blok yang mencakup beberapa rit menampilkan semua rit terkait; nominal tidak digandakan. Pelanggan dihitung unik.</div></div></div>
+ </div></div><div class=sec>IV. REKAP EVALUASI SOPIR / ARMADA</div><table><thead><tr><th>Sopir</th><th>Truk</th><th>Nomor Rit</th><th class=num>Jumlah Rit (÷ 560)</th><th class=num>Total Tabung</th><th class=num>Beban Rutin Truk</th><th class=num>Nonrutin</th><th class=num>Biaya per Tabung</th></tr></thead><tbody>${[...fleet.values()].map(f=>`<tr><td>${esc(f.driver)}</td><td>${esc(f.truck)}</td><td>${ledger.groups.filter(g=>g.sales.some(x=>x.driver===f.driver&&x.truck===f.truck)).map(g=>'Rit '+g.no).join(', ')||'-'}</td><td class=num>${nf(f.q/DO_CAPACITY)}</td><td class=num>${nf(f.q)}</td><td class=num>${rp(f.routine)}</td><td class=num>${rp(f.e-f.routine)}</td><td class=num>${f.q?rp(f.routine/f.q):'-'}</td></tr>`).join('')}</tbody></table>
+ <div class=lower><div><div class=sec>V. REKAP AKHIR</div><table><tbody><tr><td>Total Penerimaan</td><td class=num>${rp(T.v)}</td></tr><tr><td>Total Pengeluaran</td><td class=num>${rp(T.e)}</td></tr><tr class=total><td>Arus Kas Bersih</td><td class=num>${rp(T.v-T.e)}</td></tr></tbody></table></div><div><div class=sec>VI. CATATAN</div><div class=notes>${esc(CUR.notes||'....................................................................................................\n....................................................................................................')}</div><div class=footnote>Jumlah rit = total tabung ÷ 560. Pengiriman dibagi sesuai urutan input, setiap 560 tabung. Biaya mengikuti blok input. Blok yang mencakup beberapa rit menampilkan semua rit terkait; nominal tidak digandakan. Pelanggan dihitung unik. Biaya/tabung = beban rutin truk ÷ tabung: ongki, plastik, UM, BBM/solar truk, parkir, retribusi, bongkar ban, tambal ban. Pengeluaran lainnya tidak masuk biaya/tabung.</div></div></div>
  <div class=signatures><div>Dibuat Oleh<div class=signature-name>${esc(operator==='-'?'':operator)}</div></div><div>Diperiksa<div class=signature-name></div></div><div>Disetujui<div class=signature-name></div></div></div>
  </div>`;
  show('report');preparePrint();
@@ -202,7 +211,40 @@ window.addEventListener('beforeprint',preparePrint);
 $('parse').onclick=()=>{try{parse();$('parseMsg').textContent='Data berhasil dibaca.'}catch(e){$('parseMsg').className='msg err';$('parseMsg').textContent=e.message}};$('clear').onclick=()=>{$('paste').value=''};$('sample').onclick=()=>{$('date').value='2026-09-01';$('paste').value='1\tAGUS P\tAE 8361 NM\tWAHYU HARTONO\tTF\t01/09/2026\t1 September 2026\t100\t1600000\tONGKI\t56000\n\t\t\tDAMAYANTO\tTF\t01/09/2026\t1 September 2026\t50\t800000\tPLASTIK\t50000'};$('back').onclick=()=>show('input');$('print').onclick=()=>{if(!CUR){alert('Proses data laporan terlebih dahulu.');return}preparePrint();print()};
 async function save(){if(!CUR)return;let b=$('save');busy(b,true,'Menyimpan...');try{let T=totals(),uid=S.user.id,r=await rest('jpc_reports?on_conflict=created_by,report_date',{method:'POST',prefer:'resolution=merge-duplicates,return=representation',body:JSON.stringify([{created_by:uid,report_date:CUR.date,raw_paste:CUR.raw,status:'final',total_trips:Math.ceil(T.q/DO_CAPACITY),total_qty:T.q,total_revenue:T.v,total_expense:T.e}])}),rid=r[0].id;await rest('jpc_sales?report_id=eq.'+rid,{method:'DELETE',prefer:'return=minimal'});await rest('jpc_expenses?report_id=eq.'+rid,{method:'DELETE',prefer:'return=minimal'});await rest('jpc_trips?report_id=eq.'+rid,{method:'DELETE',prefer:'return=minimal'});let ts=[],ss=[],es=[];CUR.routes.forEach(r=>{let t=rt(r),id=crypto.randomUUID();ts.push({id,report_id:rid,trip_no:r.no,driver_name:r.driver,truck_no:r.truck,total_qty:t.q,total_revenue:t.v,total_expense:t.e});r.sales.forEach(x=>ss.push({report_id:rid,trip_id:id,customer_name:x.customer,qty:x.qty,unit_price:x.qty?x.revenue/x.qty:16000,revenue:x.revenue}));r.exp.forEach(x=>es.push({report_id:rid,trip_id:id,category:x.name,amount:x.amount}))});if(ts.length)await rest('jpc_trips',{method:'POST',body:JSON.stringify(ts)});if(ss.length)await rest('jpc_sales',{method:'POST',body:JSON.stringify(ss)});if(es.length)await rest('jpc_expenses',{method:'POST',body:JSON.stringify(es)});alert('Berhasil disimpan online.')}catch(e){alert('Gagal menyimpan: '+e.message)}finally{busy(b,false)}}$('save').onclick=save;
 async function history(){let el=$('history');el.textContent='Memuat...';try{let a=await rest('jpc_reports?select=report_date,total_qty,total_revenue,total_expense&order=report_date.desc',{method:'GET'});el.innerHTML=a.length?'<div class=tw><table><tr><th>Tanggal</th><th>Tabung</th><th>Rit (÷ 560)</th><th>Penerimaan</th><th>Pengeluaran</th></tr>'+a.map(x=>`<tr><td>${x.report_date}</td><td class=num>${nf(x.total_qty)}</td><td class=num>${nf(x.total_qty/DO_CAPACITY)}</td><td class=num>${rp(x.total_revenue)}</td><td class=num>${rp(x.total_expense)}</td></tr>`).join('')+'</table></div>':'Belum ada laporan.'}catch(e){el.textContent=e.message}}
-async function evaluation(){let el=$('evalBox'),m=$('month').value;el.textContent='Memuat...';try{let d=new Date(m+'-01'),nxt=new Date(d.getFullYear(),d.getMonth()+1,1),end=nxt.toISOString().slice(0,10),reps=await rest(`jpc_reports?select=id&report_date=gte.${m}-01&report_date=lt.${end}`,{method:'GET'});if(!reps.length){el.textContent='Belum ada data.';return}let tr=await rest('jpc_trips?select=driver_name,truck_no,total_qty,total_expense&report_id=in.('+reps.map(x=>x.id).join(',')+')',{method:'GET'}),map={};tr.forEach(x=>{let k=x.driver_name+'|'+x.truck_no,o=map[k]||(map[k]={d:x.driver_name,t:x.truck_no,q:0,e:0});o.q+=+x.total_qty;o.e+=+x.total_expense});let a=Object.values(map).sort((a,b)=>b.e-a.e);el.innerHTML='<table><tr><th>Sopir</th><th>Truk</th><th>Tabung</th><th>Rit (÷ 560)</th><th>Pengeluaran</th><th>Biaya/Tabung</th></tr>'+a.map(x=>`<tr><td>${esc(x.d)}</td><td>${esc(x.t)}</td><td class=num>${nf(x.q)}</td><td class=num>${nf(x.q/DO_CAPACITY)}</td><td class=num>${rp(x.e)}</td><td class=num>${rp(x.q?x.e/x.q:0)}</td></tr>`).join('')+'</table>'}catch(e){el.textContent=e.message}}$('month').onchange=evaluation;
+
+async function readAllRows(path){
+ const rows=[];for(let offset=0;;){
+  const part=await rest(path+'&limit=500&offset='+offset,{method:'GET'});
+  rows.push(...part);if(part.length<500)return rows;offset+=part.length;
+ }
+}
+async function evaluation(){
+ const el=$('evalBox'),m=$('month').value;el.textContent='Memuat...';
+ try{
+  if(!/^\d{4}-\d{2}$/.test(m)){el.textContent='Pilih bulan.';return}
+  const [year,month]=m.split('-').map(Number);
+  const end=month===12?(year+1)+'-01-01':year+'-'+String(month+1).padStart(2,'0')+'-01';
+  const reps=await readAllRows(`jpc_reports?select=id&report_date=gte.${m}-01&report_date=lt.${end}&order=id`);
+  if(!reps.length){el.textContent='Belum ada data.';return}
+  const trips=[],expenses=[];
+  for(let i=0;i<reps.length;i+=50){
+   const ids=reps.slice(i,i+50).map(x=>x.id).join(',');
+   trips.push(...await readAllRows('jpc_trips?select=id,driver_name,truck_no,total_qty,total_expense&report_id=in.('+ids+')&order=id'));
+   expenses.push(...await readAllRows('jpc_expenses?select=id,trip_id,category,amount&report_id=in.('+ids+')&order=id'));
+  }
+  const costByTrip=new Map();
+  expenses.forEach(x=>{if(isRoutineTruckExpense(x.category))costByTrip.set(x.trip_id,(costByTrip.get(x.trip_id)||0)+Number(x.amount))});
+  const map=new Map();
+  trips.forEach(x=>{
+   const key=JSON.stringify([x.driver_name,x.truck_no]),o=map.get(key)||{d:x.driver_name,t:x.truck_no,q:0,e:0,routine:0};
+   o.q+=Number(x.total_qty);o.e+=Number(x.total_expense);o.routine+=costByTrip.get(x.id)||0;map.set(key,o);
+  });
+  if($('month').value!==m)return;
+  el.innerHTML='<p class=msg>Biaya per tabung hanya memakai beban rutin truk. Pengeluaran nonrutin tetap tercatat dalam total pengeluaran.</p><div class=tw><table><tr><th>Sopir</th><th>Truk</th><th>Tabung</th><th>Rit (÷ 560)</th><th>Beban Rutin Truk</th><th>Nonrutin</th><th>Total Pengeluaran</th><th>Biaya/Tabung</th></tr>'+
+   [...map.values()].sort((a,b)=>b.routine-a.routine).map(x=>`<tr><td>${esc(x.d)}</td><td>${esc(x.t)}</td><td class=num>${nf(x.q)}</td><td class=num>${nf(x.q/DO_CAPACITY)}</td><td class=num>${rp(x.routine)}</td><td class=num>${rp(x.e-x.routine)}</td><td class=num>${rp(x.e)}</td><td class=num>${x.q?rp(x.routine/x.q):'-'}</td></tr>`).join('')+'</table></div>';
+ }catch(e){el.textContent=e.message}
+}
+$('month').onchange=evaluation;
 async function accounts(){let el=$('accountList');if(S.profile?.role!=='admin'){el.textContent='Hanya admin.';return}el.textContent='Memuat...';try{let d=await edge({action:'list_users'},true);el.innerHTML='<table><tr><th>Username</th><th>Nama</th><th>Role</th><th>Status</th></tr>'+d.users.map(x=>`<tr><td>${esc(x.username)}</td><td>${esc(x.full_name)}</td><td>${x.role}</td><td>${x.is_active?'Aktif':'Nonaktif'}</td></tr>`).join('')+'</table>'}catch(e){el.textContent=e.message}}
 $('make').onclick=async()=>{let b=$('make');busy(b,true,'Membuat...');try{await edge({action:'create_user',username:$('nu').value,password:$('np').value,full_name:$('nn').value,role:$('nr').value},true);$('accountMsg').textContent='Akun berhasil dibuat.';accounts()}catch(e){$('accountMsg').textContent=e.message}finally{busy(b,false)}};
 </script></body></html>

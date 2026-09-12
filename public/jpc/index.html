@@ -191,7 +191,7 @@ function preparePrint(){
  {
   for(let i=0;i<5&&content.getBoundingClientRect().height>maxHeight;i++){
    scale*=maxHeight/content.getBoundingClientRect().height*.995;
-   paper.style.setProperty('--print-scale',String(scale));
+   paper.style.setProperty('--print-scale',String(scale));content.style.zoom=String(scale);
   }
  }
  const notice=$('printNotice');
